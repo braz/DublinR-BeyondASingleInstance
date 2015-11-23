@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+
+	<head>
+		<meta charset="utf-8">
+
+		<title>Beyond the Single Instance - Leveraging the Public Cloud for Large Computations</title>
+
+		<meta name="description" content="How to use the Public Cloud to scale your machine learning / analytics capabilities">
+		<meta name="author" content="Eoin Brazil">
+
+		<meta name="apple-mobile-web-app-capable" content="yes">
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/solarized.css" id="theme">
+
+		<!-- Code syntax highlighting -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+
+		<!--[if lt IE 9]>
+		<script src="lib/js/html5shiv.js"></script>
+		<![endif]-->
+	</head>
+
+	<body>
+
+		<div class="reveal">
+
+			<!-- Any section element inside of this container is displayed as a slide -->
+			<div class="slides">
+				<section>
+					<h1>Beyond a single instance</h1>
+					<h3>Using The public cloud to scale your capabilities</h3>
+					<p>
+						<small>Created by <a href="http://eoinbrazil.com">Eoin Brazil</a> / <a href="http://twitter.com/eoinbrazil">@eoinbrazil</a></small>
+					</p>
+					<p>
+						<small><a href="http://github.com/braz/DublinR-BeyondASingleInstance">http://github.com/braz/DublinR-BeyondASingleInstance</a></small>
+					</p>
+				</section>
+
+				<section id="recap">
+				<h2>Recap - Journey to here</h2>
+				<p>
+					Two previous ML talks to Dublin R User Group and ended with an example of running RStudio in EC2. This talk picks up that journey and looks to the issues of scaling beyond the single instance.
+				</p>
+				<p>
+				<small><ul>
+					<li>Github: <a href="https://github.com/braz/DublinR-ML-treesandforests">https://github.com/braz/DublinR-ML-treesandforests</a></li>
+					<li>Slides: <a href="https://speakerdeck.com/braz/introduction-to-machine-learning-with-r">https://speakerdeck.com/braz/introduction-to-machine-learning-with-r</a></li>
+					<li>Github: <a href="https://github.com/braz/DublinR-ML-machine">https://github.com/braz/DublinR-ML-machine</a></li>
+					<li>Slides: <a href="https://speakerdeck.com/braz/machine-learning-of-machines-with-r">https://speakerdeck.com/braz/machine-learning-of-machines-with-r</a></li>
+				</ul></small>
+				</p>
+				</section>
+				<section id="talk_outline">
+					<h2>Talk outline</h2>
+					<ul>
+						<li>Scaling Landscape</li>
+						<li>Cluster Landscape</li>
+						<li>Examples</li>
+					</ul>
+				</section>
+
+				<section>
+					<section id="scaling_in_r_overview">
+						<h2>Scaling in R</h2>
+						<p>Variety of Packages/Libraries</p>
+						<ul>
+							<li>High Level</li>
+							<li>Low Level</li>
+							<li>Tailored for specific tasks</li>
+						</ul>
+						<aside class="notes">
+							Three main approaches to scaling calculations in R with advantages and disadvantages of each.
+						</aside>
+					</section>
+					<section id="single_machine">
+						<h2>On a single machine</h2>
+						<p class="fragment">multicore</p>
+						<p><span class="fragment">foreach</span></p>
+						<p><span class="fragment">parallel (core)</span></p>
+						<aside class="notes">
+							Running calculations across the resources of a single machine's cores.
+						</aside>
+					</section>
+					<section id="multi_machine">
+						<h2>On multiple machines</h2>
+						<p class="fragment">Rmpi</p>
+						<p><span class="fragment">nws</span></p>
+						<p><span class="fragment">snow or snowfall</span></p>
+						<p><span class="fragment">SPRINT</span></p>
+						<aside class="notes">
+							Running calculations across the resources of several machines.
+						</aside>
+					</section>
+					<section id="synchronous_versus_asynchronous">
+						<h2>Synchronous versus Asynchronous</h2>
+						<p class="fragment">Continuous communication to 'Master' R process or</p>
+						<p><span class="fragment">a job scheduler with batched jobs managing the resources.</span></p>
+						<br>
+						<p><span class="fragment">Aim to optimally exploit available computational resources.</span></p>
+						<aside class="notes">
+							Running calculations in R either Synchronous or an Asynchronous fashion.
+						</aside>
+					</section>
+					<section id="tweaks">
+						<h2>Ensure you configure your instance</h2>
+						<p><ul>
+							<li>ext4 or xfs - mount with noatime</li>
+							<li>I/O Scheduler – use deadline or noop</li>
+							<li>Use EBS-optimized instances</li>
+							<li>Enable enhanced networking (SR-IOV) - install ixgbevf module & set sriovNetSupport</li>
+						</ul></p>
+						<pre><code class="hljs" data-trim contenteditable>
+sudo echo performance | sudo tee /sys/devices/system/cpu/cpuX/cpufreq/scaling_governor > /dev/null
+sudo echo 120 | sudo tee /proc/sys/net/ipv4/tcp_keepalive_time > /dev/null
+sudo echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled > /dev/null
+sudo echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag > /dev/null
+sudo echo 0 | sudo tee /sys/kernel/mm/transparent_hugepage/khugepaged/defrag > /dev/null
+sudo echo 0 | sudo tee /proc/sys/vm/zone_reclaim_mode > /dev/null
+sudo echo tsc | sudo tee /sys/devices/system/clocksource/clocksource0/current_clocksource > /dev/null
+						</code></pre>
+						<aside class="notes">
+							There are a range of tweaks that can improve the performance of your instance but they do need to be checked, tested and then implemented.
+						</aside>
+					</section>
+				</section>
+
+				<section>
+					<section id="cluster_overview">
+					<h2>A typical cluster</h2>
+					<img data-src="./images/Cluster-Overview.png">
+					</section>
+					<section id="workload_manager_does">
+					<h2>What does a workload manager do ?</h2>
+						<p class="fragment">Allocates access to resources for period.</p>
+						<p><span class="fragment">Manages starting, stopping, monitoring work on set of allocated nodes.</span></p>
+						<p><span class="fragment">Manages queue/s of work against available resources.</span></p>
+					</section>
+					<section id="workload_managers">
+					<h2>Workload managers / schedulers</h2>
+					<p><ul>
+						<li>Terascale Open-source Resource and QUEue Manager (Torque)</li>
+						<li>Load Sharing Facility (LSF)</li>
+						<li>Simple Linux Utility for Resource Management (SLURM)</li>
+						<li>Maui</li>
+						<li>Portable Batch System (PBS)</li>
+						<li>OpenLava</li>
+						<li>Sun Grid Engine (SGE)</li>
+						<li class="fragment">Many others....</li>
+					</ul><p>
+					</section>
+					<section id="workload_r_a">
+					<h2>BatchJobs - Map/Reduce R package</h2>
+					<p><ul>
+						<li>Interactive on local machine</li>
+						<li>Parallel/multi-core on local machine</li>
+						<li>Distributed on SSH cluster</li>
+						<li>Distributed/queued on cluster</li>
+					</ul><p>
+					</section>
+					<section id="workload_r_b">
+					<h2>BatchJobs - CRAN & Github</h2>
+					<p>To install, do:
+					<ul><li>install.packages("BatchJobs")</li></ul></p>
+					<p>Documentation (e.g. Technical Report):
+					<ul><li>https://github.com/tudo-r/BatchJobs</li></ul></p>
+					</section>
+				</section>
+			<section id="practicalsectiona">
+				<section id="examples">
+					<h2>Examples</h2>
+					<ul>
+						<li>k-Means</li>
+						<li>randomForest</li>
+						<li>glmnet</li>
+					</ul>
+					<ul>
+						<li>Random x-y</li>
+						<li>US Census</li>
+						<li>cDNA microarray</li>
+						<li>Credit scoring</li>
+					</ul>
+				</section>
+					<section id="local code">
+					<h2>gen-data.R</h2>
+					<pre><code class="hljs" data-trim contenteditable>
+
+nrow <- 100000
+sd <- 0.5
+real.centers <- list( x=c(-1.3, -1.1, -0.7, -0.4, -0.1, +0.3, -0.5, +0.7, -0.9, +1.1), 
+                      y=c(-1.0, +0.5, +1.0, -0.3, +0.1, +0.5, +0.2, -1.3, +0.7, +1.2) )
+data <- matrix(nrow=0, ncol=2)
+colnames(data) <- c("x", "y")
+for (i in seq(1, 10)) {
+    x0 <- rnorm(nrow, mean=real.centers$x[[i]], sd=sd)
+    y0 <- rnorm(nrow, mean=real.centers$y[[i]], sd=sd)
+    data <- rbind( data, cbind(x0,y0) )
+}
+write.csv(data, file='dataset.csv', row.names=FALSE)
+
+					</code></pre>
+					<small><p>Code Source: <a href="https://github.com/glennklockwood/paraR/blob/master/kmeans/gen-data.R">https://github.com/glennklockwood/paraR/blob/master/kmeans/gen-data.R</a></p></small>
+					</section>
+					<section id="plot local example">
+					<h2>serial.R</h2>
+					<pre><code class="hljs" data-trim contenteditable>
+library(ggplot2) 
+#load the generated dataset
+data <- read.csv('dataset.csv')
+# run k-means and classify the data into clusters
+result <- kmeans(data, centers=10, nstart=100) 
+# print the cluster centers based on the k-means run
+print(result$centers)
+data$cluster = factor(result$cluster)
+centers = as.data.frame(result$centers)
+plot = ggplot(data=data, aes(x=x, y=y, color=cluster )) + geom_point() + geom_point(data=centers, aes(x=x,y=y, color='Center')) + geom_point(data=centers, aes(x=x,y=y, color='Center'), size=52, alpha=.3, show_guide=FALSE)
+print(plot)
+					</code></pre>
+
+					<small><p>Code Source: <a href="https://github.com/glennklockwood/paraR/blob/master/kmeans/serial.R">https://github.com/glennklockwood/paraR/blob/master/kmeans/serial.R</a></p></small>
+					</section>
+					<section id="plot visualisation"
+					<h2>Visualisation of the k-means clustering</h2>
+					<img width=800 height=600 data-src="./images/kmeans-10centers-example.png">
+					</section>
+				</section>
+
+			<section id="practicalsectiona">
+				<section>
+				<h2>Adult dataset</h2>
+				<p>It is an extract from the 1994 US census database of 32,563 rows. It covers a range of demographic information for a set of citizens including education, race, gender, marital status and can be used for a variety of purposes including building models to predict key measures like income.</p>
+				</section>
+				<section>
+					<h2>Classifier Performance</h2>
+					<small>
+					<table>
+						<thead>
+							<tr>
+								<th>Classifier</th>
+								<th>Nodes</ht>
+								<th>Observations</th>
+								<th>Folds</th>
+								<th>Iterations</th>
+								<th>Time (secs)</th>
+								<th>Result</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr>
+								<td>randomForest</td>
+								<td>1</td>
+								<td>32561 (adult)</td>
+								<td>3</td>
+								<td>1</td>
+								<td>608</td>
+								<td>0.01 (aggr) 0.01 (mean) 0.00 (sd)</td>
+							</tr>
+							<tr>
+								<td>randomForest</td>
+								<td>3</td>
+								<td>32561 (adult)</td>
+								<td>3</td>
+								<td>1</td>
+								<td>250</td>
+								<td>0.01 (aggr) 0.01 (mean) 0.00 (sd)</td>
+							</tr>
+							<tr></tr>
+						</tbody>
+					</table>
+				</small>
+				</section>
+				<section id="adultserial">
+					<h2>adultRF.R</h2>
+					<pre><code class="hljs" data-trim contenteditable>
+library("mlr")
+setwd("~/examples")
+lrn = makeLearner("classif.randomForest")
+adult = read.table("data/adult.data",
+                  sep=",",header=F,col.names=c("age", "type_employer", "fnlwgt", "education", 
+                  "education_num","marital", "occupation", "relationship", "race","sex",
+                  "capital_gain", "capital_loss", "hr_per_week","country", "income"),
+                   fill=F,strip.white=T        
+)
+adult.task = makeClassifTask(data = adult, target = "education")
+rdesc = makeResampleDesc("CV", iters = 3)
+system.time(res <- resample(lrn, adult.task, rdesc))
+res
+					</code></pre>
+					<small><p>Code Source: <a href="http://www.teraproc.com/teraproc-blog/seeing-the-forest-and-the-trees/">http://www.teraproc.com/teraproc-blog/seeing-the-forest-and-the-trees/</a></p></small>
+				</section>
+				<section id="adultparallel">
+					<h2>adultRFparallel.R</h2>
+					<pre><code class="hljs" data-trim contenteditable>
+library("parallelMap")
+library("BatchJobs")
+library("mlr")
+ 
+setwd("~/examples")
+conf = BatchJobs:::getBatchJobsConf()
+conf$cluster.functions = makeClusterFunctionsOpenLava("../batch.tmpl")
+storagedir = getwd()
+parallelStartBatchJobs(storagedir = storagedir)
+ 
+lrn = makeLearner("classif.randomForest")
+adult = read.table("data/adult.data",
+                  sep=",",header=F,col.names=c("age", "type_employer", "fnlwgt", "education", 
+                  "education_num","marital", "occupation", "relationship", "race","sex",
+                  "capital_gain", "capital_loss", "hr_per_week","country", "income"),
+                   fill=FALSE,strip.white=T        
+)
+adult.task = makeClassifTask(data = adult, target = "education")
+rdesc = makeResampleDesc("CV", iters = 3)
+system.time(res <- resample(lrn, adult.task, rdesc))
+res
+parallelStop()		
+				</code></pre>
+					<small><p>Code Source: <a href="http://www.teraproc.com/teraproc-blog/seeing-the-forest-and-the-trees/">http://www.teraproc.com/teraproc-blog/seeing-the-forest-and-the-trees/</a></p></small>
+				</section>
+			</section>
+			<section id="practicalsectionb">
+				<section>
+				<h2>Hiiragi2013 dataset</h2>
+				<p>A set of microarray expression profiles of single cells from mouse embryos at stages E3.25, E3.5 and E4.5. Explore a binary classification of transcriptome (cDNA) samples from single cells based on their microarray expression data and group these into two groups.</p>
+				</section>
+				<section>
+					<h2>Classifier Performance</h2>
+					<small>
+					<table>
+						<thead>
+							<tr>
+								<th>Classifier</th>
+								<th>Nodes</ht>
+								<th>Observations</th>
+								<th>Folds</th>
+								<th>Iterations</th>
+								<th>Time (secs)</th>
+								<th>Result</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr>
+								<td>glmnet</td>
+								<td>1</td>
+								<td>45101 features, 101 samples (Hiiragi2013)</td>
+								<td>10</td>
+								<td>12</td>
+								<td>22</td>
+								<td>0.01 (aggr) 0.01 (mean) 0.04 (sd)</td>
+							</tr>
+							<tr>
+								<td>glmnet.tuned</td>
+								<td>1</td>
+								<td>45101 features, 101 samples (Hiiragi2013)</td>
+								<td>10</td>
+								<td>12</td>
+								<td>1161</td>
+								<td>0.01 (aggr) 0.01 (mean) 0.04 (sd)</td>
+							</tr>
+							<tr>
+								<td>glmnet.tuned</td>
+								<td>3</td>
+								<td>45101 features, 101 samples (Hiiragi2013)</td>
+								<td>10</td>
+								<td>12</td>
+								<td>168</td>
+								<td>0.01 (aggr) 0.01 (mean) 0.03 (sd)</td>
+							</tr>
+							<tr></tr>
+						</tbody>
+					</table>
+				</small>
+				</section>
+				<section>
+					<h2>glmnet confusion matrix</h2>
+					<table>
+						<thead>
+							<tr>
+								<th>glmnet</th>
+								<th>response - E3.25</th>
+								<th>other</th>
+							</tr>
+							<tr>
+								<td>truth - E3.25</td>
+								<td>53</td>
+								<td>0</td>
+							</tr>
+							<tr>
+								<td>other</td>
+								<td>1</td>
+								<td>47</td>
+							</tr>
+						</tbody>
+					</table>
+					<table>
+						<thead>
+							<tr>
+								<th>glmnet tuned</th>
+								<th>response - E3.25</th>
+								<th>other</th>
+							</tr>
+							<tr>
+								<td>truth - E3.25</td>
+								<td>53</td>
+								<td>0</td>
+							</tr>
+							<tr>
+								<td>other</td>
+								<td>1</td>
+								<td>47</td>
+							</tr>
+						</tbody>
+					</table>
+				</section>
+				<section id="Hiiragi2013">
+					<h2>cDNA_microarray_serial_ex1.R</h2>
+					<pre><code class="hljs" data-trim contenteditable>
+library("knitr")
+library("Biobase")
+library("Hiiragi2013")
+library("glmnet")
+library("mlr")
+data( "x", package = "Hiiragi2013" )
+
+rowV <- data.frame( v = rowVars(exprs(x)) )
+selectionThreshold <- 10^(-0.5)
+selectedFeatures  <- ( rowV$v > selectionThreshold )
+embryoSingleCells <- data.frame( t(exprs(x)[selectedFeatures, ]), check.names = TRUE )
+embryoSingleCells$tg <- factor( ifelse( x$Embryonic.day == "E3.25", "E3.25", "other") )
+with( embryoSingleCells, table( tg ) )
+
+task <- makeClassifTask( id = "Hiiragi", data = embryoSingleCells, target = "tg" )
+lrn = makeLearner( "classif.glmnet", predict.type = "prob" )
+rdesc <- makeResampleDesc( method = "CV", stratify = TRUE, iters = 12 )
+
+start.time <- Sys.time()
+r <- resample(learner = lrn, task = task, resampling = rdesc )
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+print(time.taken)
+
+tuningLrn <- makeTuneWrapper(lrn, 
+  resampling = makeResampleDesc("CV", iters = 10,  stratify = TRUE), 
+  par.set = makeParamSet(makeNumericParam("s", lower = 0.001, upper = 0.1)), 
+  control = makeTuneControlGrid(resolution = 6) )
+start.time <- Sys.time()
+r2 <- resample(learner = tuningLrn, task = task, resampling = rdesc )
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+print(time.taken)
+					</code></pre>
+					<small><p>Code Source: <a href="https://bioconductor.org/help/course-materials/2015/CSAMA2015/lab/classification.html">https://bioconductor.org/help/course-materials/2015/CSAMA2015/lab/classification.html</a></p></small>
+				</section>
+
+				<section id="Hiiragi2013b">
+					<h2>cDNA_microarray_openlava-ex2.R</h2>
+					<pre><code class="hljs" data-trim contenteditable>
+!!! Add same libraries as cDNA_microarray_ex1.R !!!
+library("BatchJobs")
+library("parallelMap")
+library("parallel")
+
+setwd("~/examples")
+ 
+conf = BatchJobs:::getBatchJobsConf()
+conf$cluster.functions = makeClusterFunctionsOpenLava("../batch.tmpl")
+storagedir = getwd()
+parallelStartBatchJobs(storagedir = storagedir)
+
+!!! Add same code as cDNA_microarray_ex1.R !!!
+
+parallelStop()
+					</code></pre>
+				</section>
+			</section>
+			<section id="practicalsectionc">
+				<section>
+				<h2>German credit dataset</h2>
+				<p>This consists of 1000 rows, each row has information on the credit status of an individual. It provides both qualitative and quantitative, such as loan purpose, sex, loan duration, and installment rate as percentage of their disposable income.</p>
+				</section>
+				<section>
+					<h2>Classifier Performance</h2>
+					<small>
+					<table>
+						<thead>
+							<tr>
+								<th>Classifier</th>
+								<th>Nodes</ht>
+								<th>Observations</th>
+								<th>Folds</th>
+								<th>Iterations</th>
+								<th>Time (secs)</th>
+								<th>Result</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr>
+								<td>glmnet</td>
+								<td>1</td>
+								<td>800 (German Credit Scores)</td>
+								<td>10</td>
+								<td>5</td>
+								<td>6</td>
+								<td>0.26 (aggr) 0.26 (mean) 0.04 (sd)</td>
+							</tr>
+							<tr>
+								<td>glmnet.tuned</td>
+								<td>3</td>
+								<td>800 (German Credit Scores)</td>
+								<td>10</td>
+								<td>5</td>
+								<td>53</td>
+								<td>0.26 (aggr) 0.26 (mean) 0.04 (sd)</td>
+							</tr>
+							<tr></tr>
+						</tbody>
+					</table>
+				</small>
+				</section>
+				<section id="germancredita">
+					<h2>germancredit-serial.R</h2>
+					<pre><code class="hljs" data-trim contenteditable>
+library(kernlab)
+library(caret)
+library(mlr)
+setwd("~/examples")
+
+data(GermanCredit)
+GermanCredit <- GermanCredit[, -nearZeroVar(GermanCredit)]
+GermanCredit$CheckingAccountStatus.lt.0 <- NULL
+GermanCredit$SavingsAccountBonds.lt.100 <- NULL
+GermanCredit$EmploymentDuration.lt.1 <- NULL
+GermanCredit$EmploymentDuration.Unemployed <- NULL
+GermanCredit$Personal.Male.Married.Widowed <- NULL
+GermanCredit$Property.Unknown <- NULL
+GermanCredit$Housing.ForFree <- NULL
+set.seed(100)
+inTrain <- createDataPartition(GermanCredit$Class, p = .8)[[1]]
+GermanCreditTrain <- GermanCredit[inTrain, ]
+GermanCreditTest  <- GermanCredit[-inTrain, ]
+
+task = makeClassifTask(id="gc", data=GermanCreditTrain, target="Class")
+normalizeFeatures(task, method="standardize")
+lrn.svm = makeLearner("classif.ksvm")
+lrn.glm = makeLearner("classif.binomial")
+rdesc = makeResampleDesc("RepCV", folds=10, reps=5, predict="both")
+
+## estimate sigma
+set.seed(231)
+sigDist = sigest(Class ~ ., data=GermanCreditTrain, frac=1)
+trans = function(x) 2^x
+ps = makeParamSet(makeNumericParam("C", lower=-2, upper=4, trafo=trans),
+                  makeDiscreteParam("sigma", values=c(as.numeric(sigDist[2]))),
+                  makeDiscreteParam("kernel", values=c("rbfdot")))
+ctrl = makeTuneControlGrid(resolution=c(C=7L)) # adjust increment
+# check grid
+grid <- generateGridDesign(ps, resolution=c(C=7))
+# change to transformed values
+grid$C = trans(grid$C)
+grid$sigma = round(as.numeric(as.character(grid$sigma)),4)
+set.seed(123457)
+res = tuneParams(lrn.svm, task=task, resampling=rdesc, par.set=ps, control=ctrl, show.info=FALSE)
+res.opt.grid <- as.data.frame(res$opt.path)
+res.opt.grid$C = trans(res.opt.grid$C)
+res.opt.grid$sigma = round(as.numeric(as.character(res.opt.grid$sigma)),4)
+
+# update svm learner
+lrn.svm = setHyperPars(lrn.svm, par.vals=res$x)
+set.seed(123457)
+res.bench = benchmark(learners=list(lrn.svm,lrn.glm), task=task, resampling=rdesc)
+res.bench
+system.time(res <- resample(lrn, task, rdesc))
+res
+					</code></pre>
+					<small><p>Code Source: <a href="http://jaehyeon-kim.github.io/r/2015/01/24/Benchmark-Example-in-MLR-Part-I/">http://jaehyeon-kim.github.io/r/2015/01/24/Benchmark-Example-in-MLR-Part-I/</a></p></small>
+				</section>
+
+				<section id="germancreditb">
+					<h2>germancredit-ex1.R</h2>
+					<pre><code class="hljs" data-trim contenteditable>
+!!! Add same libraries as germancredit-serial.R !!!
+library("BatchJobs")
+library(parallel)
+
+setwd("~/examples")
+
+conf = BatchJobs:::getBatchJobsConf()
+conf$cluster.functions = makeClusterFunctionsOpenLava("../batch.tmpl")
+storagedir = getwd()
+parallelStartBatchJobs(storagedir = storagedir)
+
+!!! Add same code as germancredit-serial.R !!!
+
+parallelStop()
+					</code></pre>
+				</section>
+
+			</section>
+			</section>
+			<section id="summary">
+				<h2>Summary</h2>
+				<p>Advantages to using the cloud for scaling your machine models which can help reduce the time to create the models or explore larger problem spaces than possible by running many parallel similar models. Disadvantages include it may be unnecessary, need to think about parallelisation, consider the communication costs, and adds to the setup overhead.
+				</p>
+				<p>
+				<small><ul>
+					<li><a href="https://github.com/braz/DublinR-ML-treesandforests">Trees And Forests</a></li>
+					<li><a href="https://github.com/braz/DublinR-ML-machine">Machine Learning Machines</a></li>
+					<li><a href="http://github.com/braz/DublinR-BeyondASingleInstance">Beyond A Single Instance</a></li>
+
+				</ul></small>
+				</p>
+				</section>
+
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+
+			// Full list of configuration options available at:
+			// https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				controls: true,
+				progress: true,
+				history: true,
+				center: true,
+
+				transition: 'slide', // none/fade/slide/convex/concave/zoom
+
+				// Optional reveal.js plugins
+				dependencies: [
+					{ src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+					{ src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+					{ src: 'plugin/zoom-js/zoom.js', async: true },
+					{ src: 'plugin/notes/notes.js', async: true }
+				]
+			});
+
+		</script>
+
+	</body>
+</html>
